@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+supabase
+httpx
+python-dotenv
+feedparser
+pytest
+pytest-asyncio
+pytest-mock
+pytest-cov
+resend
+slack-sdk
+youtube-transcript-api
