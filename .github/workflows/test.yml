@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run unit tests
+      - name: Run tests
         env:
           SUPABASE_STAGING_URL: ${{ secrets.SUPABASE_STAGING_URL }}
           SUPABASE_STAGING_KEY: ${{ secrets.SUPABASE_STAGING_KEY }}
@@ -31,4 +31,5 @@ jobs:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
-        run: pytest tests/unit/ --cov=app --cov-report=term-missing
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: pytest tests/unit/ tests/integration/ --cov=app --cov-report=term-missing
