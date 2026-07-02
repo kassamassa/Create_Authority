@@ -70,21 +70,30 @@ def test_signed_url_generation(mock_storage, staging_supabase):
     mock_storage.remove.assert_called_once_with([path])
 
 
-def test_dify_processing(mock_storage, staging_supabase, dummy_article):
-    if not _dify_configured():
-        pytest.skip("DIFY_API_KEY / DIFY_WORKFLOW_URL が未設定のためスキップ")
+def test_dify_processing(mock_storage, mocker, staging_supabase, dummy_article):
+    # DIFY_API_KEYがdummy値だと実際のDify APIが401を返すため、
+    # Dify呼び出し自体はモックし、DB永続化のロジックを検証する。
+    mocker.patch(
+        "app.services.dify.call_dify_workflow",
+        return_value={
+            "summary": "テスト要約",
+            "faq": [
+                {"q": "質問1", "a": "回答1"},
+                {"q": "質問2", "a": "回答2"},
+            ],
+            "category": "属人化解消",
+        },
+    )
 
     _insert_dummy_article(staging_supabase, dummy_article)
 
-    path = dify.upload_temp_file(staging_supabase, dummy_article["content"])
-    signed_url = generate_signed_url(staging_supabase, dify.STORAGE_BUCKET, path, SIGNED_URL_EXPIRES_IN)
-    result = dify.call_dify_workflow(signed_url, dummy_article["id"], dummy_article["category"])
+    dify.process_article(staging_supabase, dummy_article)
 
-    assert result["summary"]
-    assert result["faq"]
-    assert result["category"]
-
-    dify.delete_temp_file(staging_supabase, path)
+    result = staging_supabase.table("articles").select("*").eq("id", dummy_article["id"]).execute()
+    article = result.data[0]
+    assert article["summary"] == "テスト要約"
+    assert article["category"] == "属人化解消"
+    assert article["status"] == "processed"
 
 
 def test_temp_file_deletion(mock_storage, mocker, staging_supabase, dummy_article):
