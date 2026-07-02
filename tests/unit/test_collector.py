@@ -51,14 +51,38 @@ def test_rss_collect_success():
     assert first["source_url"].startswith("http")
 
 
-def test_newsapi_collect_success():
-    api_key = os.getenv("NEWSAPI_KEY")
-    if not api_key:
-        pytest.skip("NEWSAPI_KEY が未設定のためスキップ")
+def test_newsapi_collect_success(mocker):
+    # NewsAPI無料プランはGitHub Actions等の外部サーバーからアクセスできないため、
+    # NewsAPIへのHTTPリクエストのみモックする。翻訳(Dify)は実際に動かして確認する。
+    if not os.getenv("DIFY_API_KEY") or not os.getenv("DIFY_WORKFLOW_URL"):
+        pytest.skip("DIFY_API_KEY / DIFY_WORKFLOW_URL が未設定のためスキップ(翻訳に実APIを使用するため)")
 
-    articles = collector.collect_from_newsapi("DX 事例", api_key=api_key)
-    assert len(articles) > 0
-    assert all(article["title"] for article in articles)
+    mock_response = mocker.Mock()
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = {
+        "status": "ok",
+        "totalResults": 1,
+        "articles": [
+            {
+                "title": "Manufacturing company adopts AI for quality inspection",
+                "description": "A manufacturing company introduced an AI-based visual inspection system "
+                               "to improve quality control on its production line.",
+                "url": "https://example.com/news/ai-quality-inspection",
+                "publishedAt": "2026-07-01T09:00:00Z",
+            }
+        ],
+    }
+    mocker.patch("httpx.get", return_value=mock_response)
+
+    articles = collector.collect_from_newsapi("DX 事例", api_key="dummy-key")
+
+    assert len(articles) == 1
+    article = articles[0]
+    assert article["title"]
+    assert article["content"]
+    assert article["source_url"] == "https://example.com/news/ai-quality-inspection"
+    # 実際にDifyで翻訳されていること(英語原文のままではないこと)を確認する
+    assert article["title"] != "Manufacturing company adopts AI for quality inspection"
 
 
 def test_youtube_transcript_success():
