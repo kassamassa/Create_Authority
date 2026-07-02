@@ -63,14 +63,15 @@ def collect_from_rss(feed_url: str) -> list[dict]:
     return articles
 
 
-def collect_from_newsapi(query: str, api_key: Optional[str] = None) -> list[dict]:
+async def collect_from_newsapi(query: str, api_key: Optional[str] = None) -> list[dict]:
     api_key = api_key or os.getenv("NEWSAPI_KEY", "")
     try:
-        response = httpx.get(
-            NEWSAPI_URL,
-            params={"q": query, "language": "en", "apiKey": api_key},
-            timeout=REQUEST_TIMEOUT,
-        )
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                NEWSAPI_URL,
+                params={"q": query, "language": "en", "apiKey": api_key},
+                timeout=REQUEST_TIMEOUT,
+            )
         response.raise_for_status()
     except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
         _handle_http_error(exc, f"NewsAPI取得失敗: query={query}")
