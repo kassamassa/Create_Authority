@@ -16,14 +16,11 @@ class ArticleStatus(str, Enum):
 
 class ArticleBase(BaseModel):
     title: str
-    content: str
+    content: Optional[str] = None
+    category: str
+    difficulty: str
     source_url: str
     source_type: str
-    category: Optional[str] = None
-    tags: Optional[list[str]] = None
-    author: Optional[str] = None
-    image_url: Optional[str] = None
-    published_at: Optional[datetime] = None
 
 
 class ArticleCreate(ArticleBase):
@@ -35,20 +32,24 @@ class ArticleUpdate(BaseModel):
     content: Optional[str] = None
     summary: Optional[str] = None
     category: Optional[str] = None
-    tags: Optional[list[str]] = None
+    difficulty: Optional[str] = None
+    quality_score: Optional[float] = None
     status: Optional[ArticleStatus] = None
-    error_message: Optional[str] = None
+    metadata: Optional[dict] = None
 
 
 class Article(ArticleBase):
     id: str
     summary: Optional[str] = None
+    quality_score: Optional[float] = None
     status: ArticleStatus = ArticleStatus.COLLECTED
-    error_message: Optional[str] = None
     retry_count: int = 0
-    newsletter_sent_at: Optional[datetime] = None
-    slack_notified_at: Optional[datetime] = None
+    failed_channel: Optional[str] = None
+    failed_at: Optional[datetime] = None
+    processed_at: Optional[datetime] = None
+    published_at: Optional[datetime] = None
+    archived_at: Optional[datetime] = None
+    metadata: dict = {}
     created_at: datetime
-    updated_at: datetime
 
     model_config = ConfigDict(use_enum_values=True)

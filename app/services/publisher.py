@@ -21,14 +21,14 @@ def notify_slack(message: str) -> None:
 
 def generate_signed_url(supabase_client, bucket: str, path: str, expires_in: int = SIGNED_URL_EXPIRES_IN) -> str:
     result = supabase_client.storage.from_(bucket).create_signed_url(path, expires_in)
-    return result.get("signedURL") or result.get("signed_url", "")
+    return result.get("signedURL") or result.get("signedUrl", "")
 
 
 def publish_article(supabase_client, article_id: str) -> dict:
     now = datetime.now(timezone.utc).isoformat()
     result = (
         supabase_client.table("articles")
-        .update({"status": "published", "published_at": now, "updated_at": now})
+        .update({"status": "published", "published_at": now})
         .eq("id", article_id)
         .execute()
     )

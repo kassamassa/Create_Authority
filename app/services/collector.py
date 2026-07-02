@@ -108,12 +108,10 @@ def save_article(supabase_client, article: dict) -> Optional[dict]:
     if existing.data:
         return None
 
-    now = datetime.now(timezone.utc).isoformat()
     record = {
         **article,
         "status": "collected",
-        "created_at": now,
-        "updated_at": now,
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
     result = supabase_client.table("articles").insert(record).execute()
     return result.data[0] if result.data else None

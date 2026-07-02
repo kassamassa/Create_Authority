@@ -1,13 +1,27 @@
 import os
+import uuid
+from datetime import datetime, timezone
 
 import httpx
 from dotenv import load_dotenv
+
+from app.services.publisher import SIGNED_URL_EXPIRES_IN, generate_signed_url, notify_slack
 
 load_dotenv()
 
 DIFY_API_KEY = os.getenv("DIFY_API_KEY", "")
 DIFY_WORKFLOW_URL = os.getenv("DIFY_WORKFLOW_URL", "https://api.dify.ai/v1/workflows/run")
 REQUEST_TIMEOUT = 30.0
+DIFY_PROCESSING_TIMEOUT = 1800.0  # 30分
+STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "articles")
+
+
+class DifyConfigError(Exception):
+    """4xx系の設定ミスなど、リトライ対象外のエラー"""
+
+
+class DifyTemporaryError(Exception):
+    """5xx・タイムアウトなど、リトライ対象の一時障害"""
 
 
 def _headers() -> dict:
@@ -41,10 +55,88 @@ def translate_to_japanese(text: str) -> str:
     return outputs.get("translated_text", text)
 
 
-def summarize_article(title: str, content: str) -> dict:
-    outputs = call_workflow({"title": title, "content": content})
+def upload_temp_file(supabase_client, content: str) -> str:
+    path = f"temp/{uuid.uuid4()}.txt"
+    supabase_client.storage.from_(STORAGE_BUCKET).upload(
+        path, (content or "").encode("utf-8"), {"content-type": "text/plain"}
+    )
+    return path
+
+
+def delete_temp_file(supabase_client, path: str) -> None:
+    supabase_client.storage.from_(STORAGE_BUCKET).remove([path])
+
+
+def call_dify_workflow(url: str, article_id: str, category: str) -> dict:
+    payload = {
+        "inputs": {"url": url, "article_id": article_id, "category": category},
+        "response_mode": "blocking",
+        "user": "create-authority",
+    }
+    try:
+        response = httpx.post(
+            DIFY_WORKFLOW_URL,
+            json=payload,
+            headers=_headers(),
+            timeout=DIFY_PROCESSING_TIMEOUT,
+        )
+        response.raise_for_status()
+    except httpx.TimeoutException as exc:
+        raise DifyTemporaryError(str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        if status >= 500:
+            raise DifyTemporaryError(str(exc)) from exc
+        raise DifyConfigError(str(exc)) from exc
+
+    data = response.json()
+    outputs = data.get("data", {}).get("outputs", {})
     return {
         "summary": outputs.get("summary", ""),
+        "faq": outputs.get("faq"),
         "category": outputs.get("category"),
-        "tags": outputs.get("tags", []),
     }
+
+
+def _reject_article(supabase_client, article_id: str, reason: str) -> None:
+    supabase_client.table("articles").update({"status": "rejected"}).eq("id", article_id).execute()
+    notify_slack(reason)
+
+
+def process_article(supabase_client, article: dict) -> dict:
+    """ステップ③: 記事本文を署名付きURL経由でDifyに渡し、summary/FAQ/categoryを取得する。"""
+    article_id = article["id"]
+    temp_path = upload_temp_file(supabase_client, article.get("content"))
+    try:
+        signed_url = generate_signed_url(supabase_client, STORAGE_BUCKET, temp_path, SIGNED_URL_EXPIRES_IN)
+
+        try:
+            result = call_dify_workflow(signed_url, article_id, article["category"])
+        except DifyTemporaryError as exc:
+            _reject_article(supabase_client, article_id, f"[dify] 一時障害によりrejected: article_id={article_id}: {exc}")
+            raise
+        except DifyConfigError as exc:
+            _reject_article(supabase_client, article_id, f"[dify] 設定ミスによりrejected: article_id={article_id}: {exc}")
+            raise
+
+        if not result.get("faq"):
+            _reject_article(supabase_client, article_id, f"[dify] FAQ未生成によりrejected: article_id={article_id}")
+            raise DifyConfigError("FAQが生成されませんでした")
+
+        now = datetime.now(timezone.utc).isoformat()
+        metadata = {**(article.get("metadata") or {}), "faq": result["faq"]}
+        updated = (
+            supabase_client.table("articles")
+            .update({
+                "summary": result["summary"],
+                "category": result.get("category") or article["category"],
+                "metadata": metadata,
+                "status": "processed",
+                "processed_at": now,
+            })
+            .eq("id", article_id)
+            .execute()
+        )
+        return updated.data[0] if updated.data else None
+    finally:
+        delete_temp_file(supabase_client, temp_path)

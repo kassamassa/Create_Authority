@@ -24,7 +24,4 @@ def run_process(article_id: str, db=Depends(get_db)):
         return {"error": "記事が見つかりません"}
 
     article = result.data[0]
-    summary = dify.summarize_article(article["title"], article["content"])
-    update = {**summary, "status": "processed"}
-    updated = db.table("articles").update(update).eq("id", article_id).execute()
-    return updated.data[0] if updated.data else None
+    return dify.process_article(db, article)

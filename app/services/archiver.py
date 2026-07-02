@@ -6,18 +6,17 @@ def archive_article(supabase_client, article_id: str) -> dict:
     now = datetime.now(timezone.utc).isoformat()
     result = (
         supabase_client.table("articles")
-        .update({"status": "archived", "updated_at": now})
+        .update({"status": "archived", "archived_at": now, "content": None})
         .eq("id", article_id)
         .execute()
     )
     return result.data[0] if result.data else None
 
 
-def reject_article(supabase_client, article_id: str, reason: str) -> dict:
-    now = datetime.now(timezone.utc).isoformat()
+def reject_article(supabase_client, article_id: str) -> dict:
     result = (
         supabase_client.table("articles")
-        .update({"status": "rejected", "error_message": reason, "updated_at": now})
+        .update({"status": "rejected"})
         .eq("id", article_id)
         .execute()
     )
