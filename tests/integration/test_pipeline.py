@@ -6,6 +6,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import httpx
 import pytest
 
+from app.services.newsletter import current_week_start
+
 
 def _insert_article(staging_supabase, article):
     staging_supabase.table("articles").insert(article).execute()
@@ -290,7 +292,9 @@ def test_parallel_publish(mocker, test_client, staging_supabase, dummy_article):
 def test_newsletter_send_integration(mocker, test_client, staging_supabase, dummy_article):
     dummy_article["status"] = "published"
     _insert_article(staging_supabase, dummy_article)
-    week_start = date.today().isoformat()
+    # send_weekly_newsletterはcurrent_week_start()(今週の月曜日)で絞り込むため、
+    # それに合わせたweek_startでキューに登録する
+    week_start = current_week_start().isoformat()
     staging_supabase.table("newsletter_queue").insert(
         {"article_id": dummy_article["id"], "week_start": week_start}
     ).execute()
