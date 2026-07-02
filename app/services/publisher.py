@@ -124,7 +124,12 @@ async def publish_to_sns(supabase_client, article: dict, image: bytes) -> dict:
     now = datetime.now(timezone.utc).isoformat()
     result = (
         supabase_client.table("articles")
-        .update({"status": "published", "published_at": now})
+        .update({
+            "status": "published",
+            "published_at": now,
+            "failed_channel": None,
+            "failed_at": None,
+        })
         .eq("id", article["id"])
         .execute()
     )
@@ -177,7 +182,12 @@ async def publish_to_site(supabase_client, article: dict) -> dict:
     now = datetime.now(timezone.utc).isoformat()
     result = (
         supabase_client.table("articles")
-        .update({"status": "published", "published_at": now})
+        .update({
+            "status": "published",
+            "published_at": now,
+            "failed_channel": None,
+            "failed_at": None,
+        })
         .eq("id", article["id"])
         .execute()
     )

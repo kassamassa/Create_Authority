@@ -42,9 +42,27 @@ def staging_supabase():
 @pytest.fixture
 def test_client(staging_supabase):
     app.dependency_overrides[get_db] = lambda: staging_supabase
-    with TestClient(app) as client:
+    # raise_server_exceptions=False: ハンドラ内の未捕捉例外を500レスポンスとして
+    # 受け取れるようにする(実運用のHTTP挙動に合わせ、例外の直接伝播に頼らない)
+    with TestClient(app, raise_server_exceptions=False) as client:
         yield client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def mock_storage(mocker, staging_supabase):
+    """Supabase Storageへの実アクセスを避け、ロジックのみをテストするためのモック。
+
+    supabase-py/storage3のバージョンによってstorageプロパティのインスタンス
+    キャッシュ挙動が異なる可能性があるため、インスタンス属性ではなく
+    SyncStorageClient.from_をクラスレベルでパッチし、確実に差し替える。
+    """
+    bucket = mocker.MagicMock()
+    bucket.upload.return_value = {"path": "temp/mock.txt", "Key": "temp/mock.txt"}
+    bucket.create_signed_url.return_value = {"signedURL": "https://example.com/signed"}
+    bucket.remove.return_value = []
+    mocker.patch("storage3._sync.client.SyncStorageClient.from_", return_value=bucket)
+    return bucket
 
 
 @pytest.fixture

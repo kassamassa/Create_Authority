@@ -106,6 +106,8 @@ def _reject_article(supabase_client, article_id: str, reason: str) -> None:
 def process_article(supabase_client, article: dict) -> dict:
     """ステップ③: 記事本文を署名付きURL経由でDifyに渡し、summary/FAQ/categoryを取得する。"""
     article_id = article["id"]
+    supabase_client.table("articles").update({"status": "processing"}).eq("id", article_id).execute()
+
     temp_path = upload_temp_file(supabase_client, article.get("content"))
     try:
         signed_url = generate_signed_url(supabase_client, STORAGE_BUCKET, temp_path, SIGNED_URL_EXPIRES_IN)

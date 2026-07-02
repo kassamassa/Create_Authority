@@ -18,22 +18,6 @@ def _insert_dummy_article(staging_supabase, dummy_article):
     staging_supabase.created_article_ids.append(dummy_article["id"])
 
 
-@pytest.fixture
-def mock_storage(mocker, staging_supabase):
-    """Supabase Storageへの実アクセスを避け、ロジックのみをテストするためのモック。
-
-    supabase-py/storage3のバージョンによってstorageプロパティのインスタンス
-    キャッシュ挙動が異なる可能性があるため、インスタンス属性ではなく
-    SyncStorageClient.from_をクラスレベルでパッチし、確実に差し替える。
-    """
-    bucket = mocker.MagicMock()
-    bucket.upload.return_value = {"path": "temp/mock.txt", "Key": "temp/mock.txt"}
-    bucket.create_signed_url.return_value = {"signedURL": "https://example.com/signed"}
-    bucket.remove.return_value = []
-    mocker.patch("storage3._sync.client.SyncStorageClient.from_", return_value=bucket)
-    return bucket
-
-
 # --- translate_to_japanese（既存機能） ---
 
 def test_translate_to_japanese_empty_string_returns_empty():
