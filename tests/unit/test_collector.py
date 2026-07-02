@@ -1,4 +1,3 @@
-import os
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -54,11 +53,8 @@ def test_rss_collect_success():
 @pytest.mark.asyncio
 async def test_newsapi_collect_success(mocker):
     # NewsAPI無料プランはGitHub Actions等の外部サーバーからアクセスできないため、
-    # httpx.AsyncClientをモックしてNewsAPIへのHTTPリクエストを差し替える。
-    # 翻訳(Dify)は実際に動かして確認する。
-    if not os.getenv("DIFY_API_KEY") or not os.getenv("DIFY_WORKFLOW_URL"):
-        pytest.skip("DIFY_API_KEY / DIFY_WORKFLOW_URL が未設定のためスキップ(翻訳に実APIを使用するため)")
-
+    # httpx.AsyncClient(NewsAPI呼び出し)とtranslate_to_japanese(Dify翻訳呼び出し)を
+    # 両方モックする。
     mock_response = mocker.Mock()
     mock_response.raise_for_status.return_value = None
     mock_response.json.return_value = {
@@ -79,15 +75,19 @@ async def test_newsapi_collect_success(mocker):
     mock_client.__aexit__.return_value = None
     mocker.patch("app.services.collector.httpx.AsyncClient", return_value=mock_client)
 
+    mocker.patch(
+        "app.services.collector.translate_to_japanese",
+        side_effect=lambda text: f"日本語訳:{text}",
+    )
+
     articles = await collector.collect_from_newsapi("DX 事例", api_key="dummy-key")
 
     assert len(articles) == 1
     article = articles[0]
-    assert article["title"]
-    assert article["content"]
+    assert article["title"] == "日本語訳:Test Article"
+    assert article["content"] == "日本語訳:Test content about DX"
     assert article["source_url"] == "https://example.com/test"
-    # 実際にDifyで翻訳されていること(英語原文のままではないこと)を確認する
-    assert article["title"] != "Test Article"
+    assert article["content"] is not None
 
 
 def test_youtube_transcript_success():
