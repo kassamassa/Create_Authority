@@ -27,6 +27,10 @@ class ArticleCreate(ArticleBase):
     pass
 
 
+class ArticleStatusUpdate(BaseModel):
+    status: ArticleStatus
+
+
 class ArticleUpdate(BaseModel):
     title: Optional[str] = None
     content: Optional[str] = None

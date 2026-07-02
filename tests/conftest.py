@@ -22,9 +22,12 @@ def staging_supabase():
 
     client = create_client(url, key)
     client.created_article_ids = []
+    client.created_feedback_ids = []
 
     yield client
 
+    if client.created_feedback_ids:
+        client.table("feedback").delete().in_("id", client.created_feedback_ids).execute()
     if client.created_article_ids:
         client.table("articles").delete().in_("id", client.created_article_ids).execute()
 
