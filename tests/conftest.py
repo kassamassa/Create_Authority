@@ -16,9 +16,16 @@ load_dotenv()
 @pytest.fixture
 def staging_supabase():
     url = os.getenv("SUPABASE_STAGING_URL")
-    key = os.getenv("SUPABASE_STAGING_KEY")
+    # service_role keyはRLSを完全にバイパスするため優先的に使用する。
+    # PostgRESTのスキーマキャッシュがRLS変更を拾わないケースがあり、
+    # anon keyだとDB側でRLSを無効化してもブロックされることがあるため。
+    key = os.getenv("SUPABASE_STAGING_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_STAGING_KEY")
     if not url or not key:
-        pytest.skip("SUPABASE_STAGING_URL / SUPABASE_STAGING_KEY が未設定のためスキップ")
+        pytest.skip(
+            "SUPABASE_STAGING_URL / "
+            "SUPABASE_STAGING_SERVICE_ROLE_KEY(またはSUPABASE_STAGING_KEY) "
+            "が未設定のためスキップ"
+        )
 
     client = create_client(url, key)
     client.created_article_ids = []

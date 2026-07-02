@@ -26,6 +26,7 @@ jobs:
         env:
           SUPABASE_STAGING_URL: ${{ secrets.SUPABASE_STAGING_URL }}
           SUPABASE_STAGING_KEY: ${{ secrets.SUPABASE_STAGING_KEY }}
+          SUPABASE_STAGING_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_STAGING_SERVICE_ROLE_KEY }}
           DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
           DIFY_WORKFLOW_URL: ${{ secrets.DIFY_WORKFLOW_URL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
