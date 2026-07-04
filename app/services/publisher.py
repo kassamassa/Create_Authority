@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 import httpx
 from dotenv import load_dotenv
 
+from app.services.newsletter import add_to_newsletter_queue
+
 load_dotenv()
 
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
@@ -191,6 +193,12 @@ async def publish_to_site(supabase_client, article: dict) -> dict:
         .eq("id", article["id"])
         .execute()
     )
+
+    try:
+        add_to_newsletter_queue(supabase_client, article["id"])
+    except Exception:
+        pass  # キュー追加失敗はpublish成功を妨げない
+
     return result.data[0] if result.data else None
 
 

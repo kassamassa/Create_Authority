@@ -63,6 +63,21 @@ def mark_queue_sent(supabase_client, queue_id: str) -> Optional[dict]:
     return result.data[0] if result.data else None
 
 
+def add_to_newsletter_queue(supabase_client, article_id: str, week_start: Optional[date] = None) -> Optional[dict]:
+    """公開済み記事を今週のnewsletter_queueに追加する。"""
+    week_start = week_start or current_week_start()
+    result = (
+        supabase_client.table("newsletter_queue")
+        .insert({
+            "article_id": article_id,
+            "week_start": week_start.isoformat(),
+            "is_sent": False,
+        })
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
 def send_weekly_newsletter(supabase_client, recipients: list[str], week_start: Optional[date] = None) -> dict:
     queue_entry = get_weekly_candidate(supabase_client, week_start)
     if not queue_entry:
