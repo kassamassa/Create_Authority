@@ -13,7 +13,7 @@ DIFY_API_KEY = os.getenv("DIFY_API_KEY", "")
 DIFY_WORKFLOW_URL = os.getenv("DIFY_WORKFLOW_URL", "https://api.dify.ai/v1/workflows/run")
 REQUEST_TIMEOUT = 30.0
 DIFY_PROCESSING_TIMEOUT = 1800.0  # 30分
-STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "articles")
+STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "temp")
 
 
 class DifyConfigError(Exception):
