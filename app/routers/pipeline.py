@@ -1,5 +1,4 @@
 import logging
-import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,37 +9,6 @@ from app.services import archiver, collector, dify, publisher
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 logger = logging.getLogger(__name__)
 
-
-@router.get("/debug")
-def debug_check(db=Depends(get_db)):
-    """環境変数・Supabase接続の疎通確認用エンドポイント。値は返さず設定済みかどうかのみ返す。"""
-    env_check = {
-        "SUPABASE_URL": bool(os.getenv("SUPABASE_URL")),
-        "SUPABASE_KEY": bool(os.getenv("SUPABASE_KEY")),
-        "NEWSAPI_KEY": bool(os.getenv("NEWSAPI_KEY")),
-        "DIFY_API_KEY": bool(os.getenv("DIFY_API_KEY")),
-        "DIFY_WORKFLOW_URL": bool(os.getenv("DIFY_WORKFLOW_URL")),
-        "SLACK_WEBHOOK_URL": bool(os.getenv("SLACK_WEBHOOK_URL")),
-        "RESEND_API_KEY": bool(os.getenv("RESEND_API_KEY")),
-        "RESEND_AUDIENCE_ID": bool(os.getenv("RESEND_AUDIENCE_ID")),
-        "SUPABASE_STORAGE_BUCKET": bool(os.getenv("SUPABASE_STORAGE_BUCKET")),
-    }
-
-    supabase_check: dict
-    try:
-        db.table("articles").select("id").limit(1).execute()
-        supabase_check = {"status": "ok"}
-        logger.info("[debug] Supabase 接続OK")
-    except Exception as exc:
-        supabase_check = {"status": "error", "detail": str(exc)}
-        logger.error("[debug] Supabase 接続エラー: %s", exc)
-
-    return {
-        "env": env_check,
-        "supabase": supabase_check,
-        "rss_feeds": collector.RSS_FEEDS,
-        "newsapi_keywords": collector.NEWSAPI_KEYWORDS,
-    }
 
 
 @router.post("/collect")

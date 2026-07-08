@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -32,3 +34,14 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/pipeline/debug")
+def pipeline_debug():
+    """環境変数の設定状況を返す。DB依存なしで常に200を返す。"""
+    return {
+        "supabase_url": bool(os.getenv("SUPABASE_URL")),
+        "supabase_key": bool(os.getenv("SUPABASE_KEY")),
+        "dify_api_key": bool(os.getenv("DIFY_API_KEY")),
+        "newsapi_key": bool(os.getenv("NEWSAPI_KEY")),
+    }
