@@ -1,3 +1,4 @@
+import json
 import os
 import uuid
 from datetime import datetime, timezone
@@ -91,6 +92,28 @@ def call_dify_workflow(content: str, article_id: str, category: str) -> dict:
 
     data = response.json()
     outputs = data.get("data", {}).get("outputs", {})
+
+    # Dify が outputs.result に Markdown コードブロックで JSON を返す場合に対応
+    result_text = outputs.get("result", "")
+    if result_text:
+        result_text = result_text.strip()
+        if result_text.startswith("```json"):
+            result_text = result_text[7:]
+        if result_text.startswith("```"):
+            result_text = result_text[3:]
+        if result_text.endswith("```"):
+            result_text = result_text[:-3]
+        result_text = result_text.strip()
+        try:
+            parsed = json.loads(result_text)
+            return {
+                "summary": parsed.get("summary", ""),
+                "faq": parsed.get("faq"),
+                "category": parsed.get("category"),
+            }
+        except json.JSONDecodeError:
+            pass  # フォールバック: outputs の直接フィールドを使う
+
     return {
         "summary": outputs.get("summary", ""),
         "faq": outputs.get("faq"),
