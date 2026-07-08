@@ -10,6 +10,36 @@ router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 logger = logging.getLogger(__name__)
 
 
+@router.post("/collect/test")
+async def test_collect():
+    """収集パイプラインの疎通確認。RSS取得とSupabase接続を個別にテストし、必ず200を返す。"""
+    results = {}
+
+    # Step 1: RSS フィード 1 件テスト（httpx 不使用 — feedparser が直接取得）
+    try:
+        import feedparser
+        feed = feedparser.parse(
+            "https://rss.itmedia.co.jp/rss/2.0/itmedia_all.xml"
+        )
+        results["rss"] = {
+            "status": "ok",
+            "entries": len(feed.entries),
+            "first_title": feed.entries[0].title if feed.entries else None,
+        }
+    except Exception as exc:
+        results["rss"] = {"status": "error", "detail": str(exc)}
+
+    # Step 2: Supabase 接続テスト（get_supabase_client が正しい関数名）
+    try:
+        from app.db import get_supabase_client
+        db = get_supabase_client()
+        res = db.table("articles").select("id").limit(1).execute()
+        results["supabase"] = {"status": "ok", "rows": len(res.data)}
+    except Exception as exc:
+        results["supabase"] = {"status": "error", "detail": str(exc)}
+
+    return results
+
 
 @router.post("/collect")
 async def run_collect(
