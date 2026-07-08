@@ -90,7 +90,7 @@ export default function Home() {
   const [usedDemo, setUsedDemo] = useState(false)
   const [activeCategory, setActiveCategory] = useState('all')
   const [form, setForm] = useState({ name: '', email: '' })
-  const [formState, setFormState] = useState('idle') // idle | submitting | success
+  const [formState, setFormState] = useState('idle') // idle | submitting | success | error
 
   useEffect(() => {
     fetch(`${API_BASE}/articles?status=published`)
@@ -115,15 +115,16 @@ export default function Home() {
     e.preventDefault()
     setFormState('submitting')
     try {
-      await fetch(`${API_BASE}/newsletter/subscribe`, {
+      const res = await fetch(`${API_BASE}/newsletter/subscribe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setFormState('success')
     } catch {
-      // バックエンドエンドポイント未実装時も登録完了として扱う
+      setFormState('error')
     }
-    setFormState('success')
   }
 
   return (
@@ -213,6 +214,18 @@ export default function Home() {
               <div className="text-4xl mb-3">🎉</div>
               <p className="font-semibold text-gray-800 text-lg">登録ありがとうございます！</p>
               <p className="text-gray-500 text-sm mt-2">次回の配信をお楽しみに。</p>
+            </div>
+          ) : formState === 'error' ? (
+            <div className="bg-white rounded-2xl p-8 shadow-sm border border-red-100">
+              <div className="text-4xl mb-3">⚠️</div>
+              <p className="font-semibold text-gray-800 text-lg">登録に失敗しました</p>
+              <p className="text-gray-500 text-sm mt-2">しばらくしてから再度お試しください。</p>
+              <button
+                onClick={() => setFormState('idle')}
+                className="mt-4 text-sm text-indigo-600 hover:underline"
+              >
+                もう一度試す
+              </button>
             </div>
           ) : (
             <form
