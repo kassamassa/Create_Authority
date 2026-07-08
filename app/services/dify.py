@@ -121,6 +121,10 @@ def process_article(supabase_client, article: dict) -> dict:
             _reject_article(supabase_client, article_id, f"[dify] 設定ミスによりrejected: article_id={article_id}: {exc}")
             raise
 
+        if not result.get("summary"):
+            _reject_article(supabase_client, article_id, f"[dify] summary未生成によりrejected: article_id={article_id}")
+            raise DifyConfigError("summaryが生成されませんでした")
+
         if not result.get("faq"):
             _reject_article(supabase_client, article_id, f"[dify] FAQ未生成によりrejected: article_id={article_id}")
             raise DifyConfigError("FAQが生成されませんでした")

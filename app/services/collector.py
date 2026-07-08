@@ -37,6 +37,19 @@ NEWSAPI_KEYWORDS = [
     "デジタルトランスフォーメーション 事例",
 ]
 
+DX_KEYWORDS = [
+    "DX", "デジタルトランスフォーメーション", "業務自動化",
+    "AI活用", "業務効率化", "デジタル化", "RPA", "クラウド導入",
+    "業務改善", "生産性向上", "ペーパーレス", "属人化",
+    "マニュアル化", "システム導入", "ITツール",
+]
+
+
+def is_dx_related(article: dict) -> bool:
+    """title・content のいずれかに DX_KEYWORDS が1つでも含まれれば True を返す。"""
+    text = " ".join(filter(None, [article.get("title", ""), article.get("content", "")]))
+    return any(kw in text for kw in DX_KEYWORDS)
+
 
 class CollectorConfigError(Exception):
     """4xx系の設定ミスなど、リトライ対象外のエラー"""

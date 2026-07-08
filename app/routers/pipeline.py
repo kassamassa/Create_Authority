@@ -159,10 +159,15 @@ async def run_collect(
 
     logger.info("[collect] 合計収集: %d 件", len(all_articles))
 
-    # ② Supabase 保存
+    # ② DX キーワードフィルタリング + Supabase 保存
+    skipped_count = 0
     saved: list[dict] = []
     save_errors: list[dict] = []
     for article in all_articles:
+        if not collector.is_dx_related(article):
+            skipped_count += 1
+            logger.debug("[collect] DXキーワード不一致スキップ: %s", (article.get("title") or "")[:60])
+            continue
         article.setdefault("category", "未分類")
         article.setdefault("difficulty", "低")
         try:
@@ -175,12 +180,14 @@ async def run_collect(
             save_errors.append({"source_url": url_short, "error": str(exc)})
 
     errors.extend(save_errors)
-    logger.info("[collect] 保存完了: %d 件 (エラー %d 件)", len(saved), len(save_errors))
+    logger.info("[collect] 保存完了: %d 件 (DXフィルタースキップ %d 件, エラー %d 件)",
+                len(saved), skipped_count, len(save_errors))
 
     if skip_dify:
         logger.info("[collect] skip_dify=true のためDify処理をスキップ")
         return {
             "collected": len(all_articles),
+            "skipped_dx_filter": skipped_count,
             "saved": len(saved),
             "processed": 0,
             "skipped_dify": True,
@@ -209,6 +216,7 @@ async def run_collect(
 
     return {
         "collected": len(all_articles),
+        "skipped_dx_filter": skipped_count,
         "saved": len(saved),
         "processed": len(processed),
         "errors": errors,
