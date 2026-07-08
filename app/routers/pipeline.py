@@ -261,11 +261,16 @@ def run_collect_youtube(video_id: str, db=Depends(get_db)):
 
 @router.post("/process/test")
 def test_process():
-    """status=collected の記事を1件取得し、articles.content をDifyに渡して結果を返す。"""
+    """status=collected の記事を1件取得し、articles.content をDifyに渡して結果を返す。
+    注意: タイムアウトを25秒に制限しているため、Dify処理が長い場合はタイムアウトエラーになる。
+    その場合は /pipeline/dify/raw を使うこと。
+    """
     import os
     import httpx as _httpx
     from app.db import get_supabase_client
     from app.services import dify as dify_svc
+
+    DEBUG_TIMEOUT = 25.0  # Railway HTTP タイムアウト(30s)より短く設定
 
     results: dict = {}
 
@@ -292,7 +297,7 @@ def test_process():
         results["fetch_error"] = str(exc)
         return results
 
-    # Step 3: Difyに送るペイロードを記録
+    # Step 3: Difyに送るペイロードを記録（Dify呼び出し前に必ず設定）
     content = article.get("content") or ""
     article_id = article["id"]
     category = article.get("category") or "未分類"
@@ -303,7 +308,7 @@ def test_process():
         "category": category,
     }
 
-    # Step 4: Dify ワークフロー呼び出し（生レスポンスも記録）
+    # Step 4: Dify ワークフロー呼び出し（短いタイムアウト・生レスポンス記録）
     try:
         payload = {
             "inputs": {"content": content, "article_id": article_id, "category": category},
@@ -314,7 +319,7 @@ def test_process():
             dify_svc.DIFY_WORKFLOW_URL,
             json=payload,
             headers=dify_svc._headers(),
-            timeout=dify_svc.DIFY_PROCESSING_TIMEOUT,
+            timeout=DEBUG_TIMEOUT,
         )
         raw_json = raw_response.json()
         outputs = raw_json.get("data", {}).get("outputs", {})
@@ -327,10 +332,70 @@ def test_process():
             "raw_keys": list(raw_json.keys()),
             "data_keys": list(raw_json.get("data", {}).keys()),
         }
+    except _httpx.TimeoutException:
+        results["dify"] = {
+            "status": "timeout",
+            "note": "25秒でタイムアウト。Dify処理が長い場合は /pipeline/dify/raw を使うこと",
+        }
     except Exception as exc:
         results["dify"] = {"status": "error", "detail": str(exc)}
 
     return results
+
+
+@router.post("/dify/raw")
+def dify_raw():
+    """status=collected の記事を1件取得し、Dify APIへのリクエスト/レスポンスをそのまま返す最小テスト。"""
+    import os
+    import httpx as _httpx
+    from app.db import get_supabase_client
+    from app.services import dify as dify_svc
+
+    # DB から記事取得
+    try:
+        db = get_supabase_client()
+        res = db.table("articles").select("id, content, category").eq("status", "collected").limit(1).execute()
+        if not res.data:
+            return {"error": "status=collected の記事が見つかりません"}
+        article = res.data[0]
+    except Exception as exc:
+        return {"db_error": str(exc)}
+
+    content = (article.get("content") or "")[:500]
+    article_id = article["id"]
+
+    payload = {
+        "inputs": {
+            "content": content,
+            "article_id": article_id,
+            "category": "属人化解消",
+        },
+        "response_mode": "blocking",
+        "user": "debug",
+    }
+
+    try:
+        response = _httpx.post(
+            dify_svc.DIFY_WORKFLOW_URL,
+            json=payload,
+            headers=dify_svc._headers(),
+            timeout=25.0,
+        )
+        return {
+            "payload_sent": payload,
+            "status_code": response.status_code,
+            "response_body": response.json(),
+        }
+    except _httpx.TimeoutException:
+        return {
+            "payload_sent": payload,
+            "error": "timeout after 25s",
+        }
+    except Exception as exc:
+        return {
+            "payload_sent": payload,
+            "error": str(exc),
+        }
 
 
 @router.post("/process/{article_id}")
