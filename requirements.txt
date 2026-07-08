@@ -1,13 +1,51 @@
-fastapi
-uvicorn
-supabase
-httpx
-python-dotenv
-feedparser
-pytest
-pytest-asyncio
-pytest-mock
-pytest-cov
-resend
-slack-sdk
-youtube-transcript-api
+# --- Direct dependencies ---
+fastapi==0.138.0
+uvicorn==0.49.0
+supabase==2.10.0
+httpx==0.27.2
+python-dotenv==1.2.2
+feedparser==6.0.12
+resend==2.32.2
+slack-sdk==3.43.0
+youtube-transcript-api==1.2.4
+anthropic==0.111.0
+
+# --- Test dependencies ---
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-mock==3.15.1
+pytest-cov==7.1.0
+coverage==7.15.0
+
+# --- FastAPI / Starlette ---
+starlette==1.3.1
+pydantic==2.12.5
+pydantic-core==2.41.5
+annotated-types==0.7.0
+typing_extensions==4.15.0
+
+# --- HTTP / async ---
+anyio==4.13.0
+sniffio==1.3.1
+h11==0.16.0
+httpcore==1.0.9
+certifi==2024.12.14
+idna==3.10
+click==8.4.1
+
+# --- Supabase internals ---
+gotrue==2.12.4
+postgrest==0.18.0
+realtime==2.5.3
+storage3==0.9.0
+supafunc==0.7.0
+supabase-auth==2.31.0
+websockets==15.0.1
+deprecation==2.1.0
+python-dateutil==2.9.0.post0
+six==1.17.0
+
+# --- Pytest internals ---
+iniconfig==2.1.0
+packaging==24.2
+pluggy==1.5.0
