@@ -308,7 +308,7 @@ def test_process():
         "category": category,
     }
 
-    # Step 4: Dify ワークフロー呼び出し（短いタイムアウト・生レスポンス記録）
+    # Step 4a: 生レスポンス記録（outputs.result の中身を確認）
     try:
         payload = {
             "inputs": {"content": content, "article_id": article_id, "category": category},
@@ -323,22 +323,26 @@ def test_process():
         )
         raw_json = raw_response.json()
         outputs = raw_json.get("data", {}).get("outputs", {})
-        results["dify"] = {
+        results["dify_raw"] = {
             "status_code": raw_response.status_code,
-            "outputs": outputs,
-            "summary_value": outputs.get("summary"),
-            "faq_value": outputs.get("faq"),
-            "category_value": outputs.get("category"),
-            "raw_keys": list(raw_json.keys()),
-            "data_keys": list(raw_json.get("data", {}).keys()),
+            "outputs_keys": list(outputs.keys()),
+            "result_preview": (outputs.get("result") or "")[:200],
+            "summary_direct": outputs.get("summary"),
         }
     except _httpx.TimeoutException:
-        results["dify"] = {
-            "status": "timeout",
-            "note": "25秒でタイムアウト。Dify処理が長い場合は /pipeline/dify/raw を使うこと",
-        }
+        results["dify_raw"] = {"status": "timeout"}
     except Exception as exc:
-        results["dify"] = {"status": "error", "detail": str(exc)}
+        results["dify_raw"] = {"status": "error", "detail": str(exc)}
+
+    # Step 4b: call_dify_workflow（Markdownパース込み）の戻り値を確認
+    try:
+        dify_svc.DIFY_PROCESSING_TIMEOUT = DEBUG_TIMEOUT  # テスト用に短縮
+        call_result = dify_svc.call_dify_workflow(content, article_id, category)
+        results["call_dify_result"] = call_result
+    except _httpx.TimeoutException:
+        results["call_dify_result"] = {"status": "timeout"}
+    except Exception as exc:
+        results["call_dify_result"] = {"status": "error", "detail": str(exc)}
 
     return results
 
