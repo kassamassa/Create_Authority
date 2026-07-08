@@ -45,3 +45,13 @@ def pipeline_debug():
         "dify_api_key": bool(os.getenv("DIFY_API_KEY")),
         "newsapi_key": bool(os.getenv("NEWSAPI_KEY")),
     }
+
+
+@app.get("/routes")
+def list_routes():
+    """登録済み全エンドポイントの一覧を返す。デプロイ確認用。"""
+    return [
+        {"path": route.path, "methods": sorted(route.methods)}
+        for route in app.routes
+        if hasattr(route, "methods")
+    ]
