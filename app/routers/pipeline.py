@@ -71,6 +71,49 @@ async def test_collect():
     return results
 
 
+@router.post("/collect/debug")
+async def debug_collect():
+    """RSS1件を実際にinsertして詳細な結果をレスポンスに返す。"""
+    import feedparser
+    import uuid
+    from app.db import get_supabase_client
+
+    # RSS 1件取得
+    feed = feedparser.parse(
+        "https://rss.itmedia.co.jp/rss/2.0/itmedia_all.xml"
+    )
+    entry = feed.entries[0]
+
+    # 実際の save_article と同じデータ構造で作成
+    article = {
+        "id": str(uuid.uuid4()),
+        "title": entry.get("title", ""),
+        "content": entry.get("summary", ""),
+        "category": "未分類",
+        "difficulty": "低",
+        "source_url": entry.get("link", ""),
+        "source_type": "rss",
+        "status": "collected",
+    }
+
+    # INSERT を試みる
+    try:
+        db = get_supabase_client()
+        res = db.table("articles").insert(article).execute()
+        return {
+            "article": article,
+            "insert_result": {
+                "data": res.data,
+                "count": res.count,
+            },
+        }
+    except Exception as exc:
+        return {
+            "article": article,
+            "insert_error": str(exc),
+        }
+
+
 @router.post("/collect")
 async def run_collect(
     feed_url: Optional[str] = None,
