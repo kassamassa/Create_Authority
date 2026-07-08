@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # pipeline を先頭で明示的に import
-from app.routers import pipeline
+from app.routers.pipeline import router as pipeline_router
 
 app = FastAPI(title="Create Authority")
 
@@ -23,16 +23,27 @@ app.add_middleware(
 
 _router_errors: dict = {}
 
-# pipeline router: router 自体に prefix="/pipeline" があるため引数なしで include
+# ① include_router（標準的な方法）
 try:
-    app.include_router(pipeline.router)
-    print(f"[startup] pipeline router registered OK ({len(pipeline.router.routes)} routes)")
+    app.include_router(pipeline_router)
+    print(f"[startup] pipeline include_router OK")
 except Exception as exc:
-    _router_errors["pipeline"] = f"{type(exc).__name__}: {exc}"
-    print(f"[startup] pipeline FAILED: {exc}")
+    _router_errors["pipeline_include"] = f"{type(exc).__name__}: {exc}"
+    print(f"[startup] pipeline include_router FAILED: {exc}")
     traceback.print_exc()
 
-# その他の router
+# ② 直接 routes リストに追加（include_router が機能しない場合のフォールバック）
+try:
+    for route in pipeline_router.routes:
+        if route not in app.router.routes:
+            app.router.routes.append(route)
+    print(f"[startup] pipeline direct append: {len(pipeline_router.routes)} routes")
+except Exception as exc:
+    _router_errors["pipeline_direct"] = f"{type(exc).__name__}: {exc}"
+    print(f"[startup] pipeline direct FAILED: {exc}")
+    traceback.print_exc()
+
+
 def _safe_include(name: str, import_path: str, attr: str = "router") -> None:
     try:
         import importlib
@@ -43,6 +54,7 @@ def _safe_include(name: str, import_path: str, attr: str = "router") -> None:
         _router_errors[name] = f"{type(exc).__name__}: {exc}"
         print(f"[startup] {name} FAILED: {exc}")
         traceback.print_exc()
+
 
 _safe_include("articles",   "app.routers.articles")
 _safe_include("newsletter", "app.routers.newsletter")
@@ -73,13 +85,13 @@ def pipeline_debug():
 
 @app.get("/routes")
 def list_routes():
-    """登録済み全エンドポイント・router内ルート・router登録エラーを返す。デプロイ確認用。"""
+    """登録済み全エンドポイント・router内ルート・登録エラーを返す。デプロイ確認用。"""
     return {
-        "routes": [
+        "app_routes": [
             {"path": route.path, "methods": sorted(route.methods)}
             for route in app.routes
             if hasattr(route, "methods")
         ],
-        "pipeline_routes": [r.path for r in pipeline.router.routes],
+        "pipeline_routes": [r.path for r in pipeline_router.routes],
         "router_errors": _router_errors,
     }
