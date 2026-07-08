@@ -23,7 +23,7 @@ def subscribe(payload: SubscribePayload):
     """Resend contacts APIにメールアドレスを登録する。Supabaseには保存しない。"""
     try:
         response = httpx.post(
-            "https://api.resend.com/contacts",
+            f"https://api.resend.com/audiences/{RESEND_AUDIENCE_ID}/contacts",
             headers={
                 "Authorization": f"Bearer {RESEND_API_KEY}",
                 "Content-Type": "application/json",
@@ -32,7 +32,6 @@ def subscribe(payload: SubscribePayload):
                 "email": payload.email,
                 "first_name": payload.name,
                 "unsubscribed": False,
-                "audience_id": RESEND_AUDIENCE_ID,
             },
             timeout=10.0,
         )

@@ -8,6 +8,7 @@ app = FastAPI(title="Create Authority")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "https://create-authority.vercel.app",
         "https://create-authority-gcu4t08rn-kassamassas-projects.vercel.app",
         "http://localhost:5175",
     ],
