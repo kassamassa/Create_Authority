@@ -1,4 +1,5 @@
 import calendar
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Optional
@@ -16,6 +17,8 @@ from youtube_transcript_api._errors import (
 from app.services.publisher import notify_slack
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 NEWSAPI_URL = "https://newsapi.org/v2/everything"
 REQUEST_TIMEOUT = 10.0
@@ -69,11 +72,16 @@ def _parse_published(entry: dict) -> Optional[str]:
 
 
 def collect_from_rss(feed_url: str) -> list[dict]:
+    logger.info("[rss] 取得開始: %s", feed_url)
     try:
         response = httpx.get(feed_url, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
     except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+        logger.error("[rss] HTTP エラー: %s — %s", feed_url, exc)
         _handle_http_error(exc, f"RSS取得失敗: {feed_url}")
+    except Exception as exc:
+        logger.error("[rss] 接続エラー: %s — %s", feed_url, exc)
+        raise
 
     feed = feedparser.parse(response.content)
     articles = []
@@ -88,6 +96,7 @@ def collect_from_rss(feed_url: str) -> list[dict]:
             "source_type": "rss",
             "published_at": _parse_published(entry),
         })
+    logger.info("[rss] 取得完了: %d 件 (%s)", len(articles), feed_url)
     return articles
 
 
@@ -99,15 +108,19 @@ def collect_all_rss() -> tuple[list[dict], list[dict]]:
         try:
             articles.extend(collect_from_rss(url))
         except Exception as exc:
+            logger.error("[rss] フィード収集失敗 url=%s: %s", url, exc)
             errors.append({"source": url, "error": str(exc)})
+    logger.info("[rss] 全フィード収集完了: %d 件 (エラー %d 件)", len(articles), len(errors))
     return articles, errors
 
 
 async def collect_from_newsapi(query: str, api_key: Optional[str] = None) -> list[dict]:
     api_key = api_key or os.getenv("NEWSAPI_KEY", "")
     if not api_key:
+        logger.info("[newsapi] NEWSAPI_KEY 未設定のためスキップ")
         return []
 
+    logger.info("[newsapi] 取得開始: query=%s", query)
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -117,7 +130,11 @@ async def collect_from_newsapi(query: str, api_key: Optional[str] = None) -> lis
             )
         response.raise_for_status()
     except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+        logger.error("[newsapi] HTTP エラー: query=%s — %s", query, exc)
         _handle_http_error(exc, f"NewsAPI取得失敗: query={query}")
+    except Exception as exc:
+        logger.error("[newsapi] 接続エラー: query=%s — %s", query, exc)
+        raise
 
     payload = response.json()
     articles = []
@@ -133,6 +150,7 @@ async def collect_from_newsapi(query: str, api_key: Optional[str] = None) -> lis
             "source_type": "newsapi",
             "published_at": item.get("publishedAt"),
         })
+    logger.info("[newsapi] 取得完了: %d 件 (query=%s)", len(articles), query)
     return articles
 
 
@@ -145,7 +163,9 @@ async def collect_all_newsapi() -> tuple[list[dict], list[dict]]:
             results = await collect_from_newsapi(keyword)
             articles.extend(results)
         except Exception as exc:
+            logger.error("[newsapi] キーワード収集失敗: keyword=%s: %s", keyword, exc)
             errors.append({"source": f"newsapi:{keyword}", "error": str(exc)})
+    logger.info("[newsapi] 全キーワード収集完了: %d 件 (エラー %d 件)", len(articles), len(errors))
     return articles, errors
 
 
@@ -158,13 +178,15 @@ def collect_youtube_transcript(video_id: str) -> Optional[str]:
 
 
 def save_article(supabase_client, article: dict) -> Optional[dict]:
+    source_url = article.get("source_url", "")
     existing = (
         supabase_client.table("articles")
         .select("id")
-        .eq("source_url", article["source_url"])
+        .eq("source_url", source_url)
         .execute()
     )
     if existing.data:
+        logger.debug("[save] 重複スキップ: %s", source_url[:80])
         return None
 
     record = {
@@ -173,4 +195,7 @@ def save_article(supabase_client, article: dict) -> Optional[dict]:
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     result = supabase_client.table("articles").insert(record).execute()
-    return result.data[0] if result.data else None
+    saved = result.data[0] if result.data else None
+    if saved:
+        logger.info("[save] 保存完了: id=%s url=%s", saved.get("id"), source_url[:80])
+    return saved

@@ -1,3 +1,5 @@
+import logging
+import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,47 +8,131 @@ from app.db import get_db
 from app.services import archiver, collector, dify, publisher
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
+logger = logging.getLogger(__name__)
+
+
+@router.get("/debug")
+def debug_check(db=Depends(get_db)):
+    """環境変数・Supabase接続の疎通確認用エンドポイント。値は返さず設定済みかどうかのみ返す。"""
+    env_check = {
+        "SUPABASE_URL": bool(os.getenv("SUPABASE_URL")),
+        "SUPABASE_KEY": bool(os.getenv("SUPABASE_KEY")),
+        "NEWSAPI_KEY": bool(os.getenv("NEWSAPI_KEY")),
+        "DIFY_API_KEY": bool(os.getenv("DIFY_API_KEY")),
+        "DIFY_WORKFLOW_URL": bool(os.getenv("DIFY_WORKFLOW_URL")),
+        "SLACK_WEBHOOK_URL": bool(os.getenv("SLACK_WEBHOOK_URL")),
+        "RESEND_API_KEY": bool(os.getenv("RESEND_API_KEY")),
+        "RESEND_AUDIENCE_ID": bool(os.getenv("RESEND_AUDIENCE_ID")),
+        "SUPABASE_STORAGE_BUCKET": bool(os.getenv("SUPABASE_STORAGE_BUCKET")),
+    }
+
+    supabase_check: dict
+    try:
+        db.table("articles").select("id").limit(1).execute()
+        supabase_check = {"status": "ok"}
+        logger.info("[debug] Supabase 接続OK")
+    except Exception as exc:
+        supabase_check = {"status": "error", "detail": str(exc)}
+        logger.error("[debug] Supabase 接続エラー: %s", exc)
+
+    return {
+        "env": env_check,
+        "supabase": supabase_check,
+        "rss_feeds": collector.RSS_FEEDS,
+        "newsapi_keywords": collector.NEWSAPI_KEYWORDS,
+    }
 
 
 @router.post("/collect")
-async def run_collect(feed_url: Optional[str] = None, db=Depends(get_db)):
+async def run_collect(
+    feed_url: Optional[str] = None,
+    skip_dify: bool = False,
+    db=Depends(get_db),
+):
     """RSS・NewsAPIから記事を収集し、Difyで処理する。
     feed_url を指定すると指定フィードのみ収集。省略すると全ソースを収集。
+    skip_dify=true にすると収集・保存のみ行いDify処理をスキップ（デバッグ用）。
     """
+    logger.info("[collect] 開始 feed_url=%s skip_dify=%s", feed_url, skip_dify)
+
     all_articles: list[dict] = []
     errors: list[dict] = []
 
-    if feed_url:
-        try:
-            all_articles.extend(collector.collect_from_rss(feed_url))
-        except Exception as exc:
-            errors.append({"source": feed_url, "error": str(exc)})
-    else:
-        rss_articles, rss_errors = collector.collect_all_rss()
-        all_articles.extend(rss_articles)
-        errors.extend(rss_errors)
+    # ① 収集
+    try:
+        if feed_url:
+            logger.info("[collect] RSS収集（単体）: %s", feed_url)
+            try:
+                articles = collector.collect_from_rss(feed_url)
+                all_articles.extend(articles)
+                logger.info("[collect] RSS収集完了: %d 件", len(articles))
+            except Exception as exc:
+                logger.error("[collect] RSS収集エラー: %s — %s", feed_url, exc)
+                errors.append({"source": feed_url, "error": str(exc)})
+        else:
+            logger.info("[collect] 全RSS収集開始 (%d フィード)", len(collector.RSS_FEEDS))
+            rss_articles, rss_errors = collector.collect_all_rss()
+            all_articles.extend(rss_articles)
+            errors.extend(rss_errors)
+            logger.info("[collect] RSS収集完了: %d 件, エラー: %d 件", len(rss_articles), len(rss_errors))
 
-        news_articles, news_errors = await collector.collect_all_newsapi()
-        all_articles.extend(news_articles)
-        errors.extend(news_errors)
+            logger.info("[collect] NewsAPI収集開始")
+            news_articles, news_errors = await collector.collect_all_newsapi()
+            all_articles.extend(news_articles)
+            errors.extend(news_errors)
+            logger.info("[collect] NewsAPI収集完了: %d 件, エラー: %d 件", len(news_articles), len(news_errors))
 
-    saved = []
+    except Exception as exc:
+        logger.exception("[collect] 収集ステップで予期しないエラー: %s", exc)
+        errors.append({"source": "collect_step", "error": str(exc)})
+
+    logger.info("[collect] 合計収集: %d 件", len(all_articles))
+
+    # ② Supabase 保存
+    saved: list[dict] = []
+    save_errors: list[dict] = []
     for article in all_articles:
         article.setdefault("category", "uncategorized")
         article.setdefault("difficulty", "中")
-        result = collector.save_article(db, article)
-        if result:
-            saved.append(result)
+        try:
+            result = collector.save_article(db, article)
+            if result:
+                saved.append(result)
+        except Exception as exc:
+            url_short = (article.get("source_url") or "")[:80]
+            logger.error("[collect] save_article エラー url=%s: %s", url_short, exc)
+            save_errors.append({"source_url": url_short, "error": str(exc)})
 
-    processed = []
+    errors.extend(save_errors)
+    logger.info("[collect] 保存完了: %d 件 (エラー %d 件)", len(saved), len(save_errors))
+
+    if skip_dify:
+        logger.info("[collect] skip_dify=true のためDify処理をスキップ")
+        return {
+            "collected": len(all_articles),
+            "saved": len(saved),
+            "processed": 0,
+            "skipped_dify": True,
+            "errors": errors,
+        }
+
+    # ③ Dify 処理
+    processed: list[dict] = []
     for article in saved:
+        article_id = article.get("id", "")
+        title_short = (article.get("title") or "")[:50]
+        logger.info("[collect] Dify処理開始 id=%s title=%s", article_id, title_short)
         try:
             result = dify.process_article(db, article)
             if result:
                 processed.append(result)
-        except Exception:
-            # process_article が status 更新・Slack 通知済みのため継続
-            continue
+                logger.info("[collect] Dify処理完了 id=%s", article_id)
+        except Exception as exc:
+            # process_article が内部で status 更新・Slack 通知済み
+            logger.error("[collect] Dify処理エラー id=%s: %s", article_id, exc)
+
+    logger.info("[collect] 完了: collected=%d saved=%d processed=%d errors=%d",
+                len(all_articles), len(saved), len(processed), len(errors))
 
     return {
         "collected": len(all_articles),
@@ -59,6 +145,7 @@ async def run_collect(feed_url: Optional[str] = None, db=Depends(get_db)):
 @router.post("/collect/youtube/{video_id}")
 def run_collect_youtube(video_id: str, db=Depends(get_db)):
     """YouTube動画の字幕を収集してDifyで処理する。"""
+    logger.info("[collect/youtube] video_id=%s", video_id)
     transcript = collector.collect_youtube_transcript(video_id)
     if transcript is None:
         raise HTTPException(
@@ -74,7 +161,12 @@ def run_collect_youtube(video_id: str, db=Depends(get_db)):
         "category": "uncategorized",
         "difficulty": "中",
     }
-    saved = collector.save_article(db, article)
+    try:
+        saved = collector.save_article(db, article)
+    except Exception as exc:
+        logger.error("[collect/youtube] save_article エラー: %s", exc)
+        raise HTTPException(status_code=502, detail=f"保存に失敗しました: {exc}")
+
     if not saved:
         return {"message": "既に保存済みです", "saved": 0, "processed": 0}
 
@@ -82,11 +174,13 @@ def run_collect_youtube(video_id: str, db=Depends(get_db)):
         result = dify.process_article(db, saved)
         return {"collected": 1, "saved": 1, "processed": 1, "article": result}
     except Exception as exc:
+        logger.error("[collect/youtube] Dify処理エラー: %s", exc)
         return {"collected": 1, "saved": 1, "processed": 0, "error": str(exc)}
 
 
 @router.post("/process/{article_id}")
 def run_process(article_id: str, db=Depends(get_db)):
+    logger.info("[process] article_id=%s", article_id)
     result = db.table("articles").select("*").eq("id", article_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="記事が見つかりません")
