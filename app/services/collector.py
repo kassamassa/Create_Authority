@@ -1,3 +1,4 @@
+import calendar
 import os
 from datetime import datetime, timezone
 from typing import Optional
@@ -12,13 +13,25 @@ from youtube_transcript_api._errors import (
     VideoUnavailable,
 )
 
-from app.services.dify import translate_to_japanese
 from app.services.publisher import notify_slack
 
 load_dotenv()
 
 NEWSAPI_URL = "https://newsapi.org/v2/everything"
 REQUEST_TIMEOUT = 10.0
+
+RSS_FEEDS = [
+    "https://rss.itmedia.co.jp/rss/2.0/itmedia_all.xml",
+    "https://xtech.nikkei.com/rss/index.rdf",
+    "https://japan.zdnet.com/rss/index.rdf",
+    "https://jp.techcrunch.com/feed/",
+]
+
+NEWSAPI_KEYWORDS = [
+    "DX 中小企業",
+    "業務自動化 AI",
+    "デジタルトランスフォーメーション 事例",
+]
 
 
 class CollectorConfigError(Exception):
@@ -43,6 +56,18 @@ def _handle_http_error(exc: Exception, context: str) -> None:
     raise exc
 
 
+def _parse_published(entry: dict) -> Optional[str]:
+    """feedparserのエントリから published_at を ISO 8601 文字列に変換する。"""
+    parsed = entry.get("published_parsed")
+    if parsed:
+        try:
+            ts = calendar.timegm(parsed)  # UTC struct_time → Unix timestamp
+            return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+        except Exception:
+            pass
+    return None
+
+
 def collect_from_rss(feed_url: str) -> list[dict]:
     try:
         response = httpx.get(feed_url, timeout=REQUEST_TIMEOUT)
@@ -53,18 +78,36 @@ def collect_from_rss(feed_url: str) -> list[dict]:
     feed = feedparser.parse(response.content)
     articles = []
     for entry in feed.entries:
+        source_url = entry.get("link", "")
+        if not source_url:
+            continue
         articles.append({
             "title": entry.get("title", ""),
             "content": entry.get("summary", entry.get("description", "")),
-            "source_url": entry.get("link", ""),
+            "source_url": source_url,
             "source_type": "rss",
-            "published_at": entry.get("published", None),
+            "published_at": _parse_published(entry),
         })
     return articles
 
 
+def collect_all_rss() -> tuple[list[dict], list[dict]]:
+    """全 RSS_FEEDS から収集する。1フィードが失敗しても他は継続。"""
+    articles: list[dict] = []
+    errors: list[dict] = []
+    for url in RSS_FEEDS:
+        try:
+            articles.extend(collect_from_rss(url))
+        except Exception as exc:
+            errors.append({"source": url, "error": str(exc)})
+    return articles, errors
+
+
 async def collect_from_newsapi(query: str, api_key: Optional[str] = None) -> list[dict]:
     api_key = api_key or os.getenv("NEWSAPI_KEY", "")
+    if not api_key:
+        return []
+
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -79,16 +122,31 @@ async def collect_from_newsapi(query: str, api_key: Optional[str] = None) -> lis
     payload = response.json()
     articles = []
     for item in payload.get("articles", []):
-        title_ja = translate_to_japanese(item.get("title", ""))
-        content_ja = translate_to_japanese(item.get("description") or item.get("content") or "")
+        source_url = item.get("url", "")
+        if not source_url or source_url == "[Removed]":
+            continue
+        # 英語のまま保存し、Dify処理ステップで要約・カテゴリ分類する
         articles.append({
-            "title": title_ja,
-            "content": content_ja,
-            "source_url": item.get("url", ""),
+            "title": item.get("title", ""),
+            "content": item.get("description") or item.get("content") or "",
+            "source_url": source_url,
             "source_type": "newsapi",
             "published_at": item.get("publishedAt"),
         })
     return articles
+
+
+async def collect_all_newsapi() -> tuple[list[dict], list[dict]]:
+    """全 NEWSAPI_KEYWORDS で収集する。NEWSAPI_KEY 未設定時は空を返す。"""
+    articles: list[dict] = []
+    errors: list[dict] = []
+    for keyword in NEWSAPI_KEYWORDS:
+        try:
+            results = await collect_from_newsapi(keyword)
+            articles.extend(results)
+        except Exception as exc:
+            errors.append({"source": f"newsapi:{keyword}", "error": str(exc)})
+    return articles, errors
 
 
 def collect_youtube_transcript(video_id: str) -> Optional[str]:
