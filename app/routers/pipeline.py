@@ -451,6 +451,40 @@ def run_process(article_id: str, db=Depends(get_db)):
     return dify.process_article(db, result.data[0])
 
 
+@router.post("/publish/all")
+async def run_publish_all(db=Depends(get_db)):
+    """status=processed の記事を全件取得し、publish_article_parallel を順次実行する。"""
+    res = db.table("articles").select("*").eq("status", "processed").execute()
+    articles = res.data or []
+    total = len(articles)
+    logger.info("[publish/all] 開始: %d 件", total)
+
+    published_ids: list[str] = []
+    errors: list[dict] = []
+
+    for article in articles:
+        article_id = article.get("id", "")
+        title_short = (article.get("title") or "")[:50]
+        logger.info("[publish/all] 処理中 id=%s title=%s", article_id, title_short)
+        try:
+            await publisher.publish_article_parallel(db, article)
+            published_ids.append(article_id)
+            logger.info("[publish/all] 完了 id=%s", article_id)
+        except Exception as exc:
+            logger.error("[publish/all] エラー id=%s: %s", article_id, exc)
+            errors.append({"article_id": article_id, "error": str(exc)})
+
+    logger.info(
+        "[publish/all] 完了: total=%d published=%d errors=%d",
+        total, len(published_ids), len(errors),
+    )
+    return {
+        "total": total,
+        "published": len(published_ids),
+        "errors": errors,
+    }
+
+
 @router.post("/publish/{article_id}")
 async def run_publish(article_id: str, db=Depends(get_db)):
     result = db.table("articles").select("*").eq("id", article_id).execute()
