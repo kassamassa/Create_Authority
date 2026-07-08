@@ -1,6 +1,7 @@
 import calendar
 import logging
 import os
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -191,18 +192,32 @@ def save_article(supabase_client, article: dict) -> Optional[dict]:
 
     record = {
         **article,
+        "id": article.get("id") or str(uuid.uuid4()),  # NOT NULL なので明示生成
+        "category": article.get("category") or "未分類",
+        "difficulty": article.get("difficulty") or "低",
         "status": "collected",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+
+    logger.info(
+        "[save] INSERT開始 id=%s category=%s difficulty=%s source_type=%s url=%s",
+        record["id"],
+        record["category"],
+        record["difficulty"],
+        record.get("source_type"),
+        source_url[:80],
+    )
+
     result = supabase_client.table("articles").insert(record).execute()
     if not result.data:
         # 例外なしで data が空 → RLS ブロックまたはスキーマ不一致の silent failure
         logger.error(
-            "[save] INSERT失敗（data空）url=%s raw=%s",
+            "[save] INSERT失敗（data空）id=%s url=%s raw=%s",
+            record["id"],
             source_url[:80],
-            str(result)[:200],
+            str(result)[:300],
         )
         return None
     saved = result.data[0]
-    logger.info("[save] 保存完了: id=%s url=%s", saved.get("id"), source_url[:80])
+    logger.info("[save] 保存完了: id=%s", saved.get("id"))
     return saved

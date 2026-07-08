@@ -120,8 +120,8 @@ async def run_collect(
     saved: list[dict] = []
     save_errors: list[dict] = []
     for article in all_articles:
-        article.setdefault("category", "uncategorized")
-        article.setdefault("difficulty", "中")
+        article.setdefault("category", "未分類")
+        article.setdefault("difficulty", "低")
         try:
             result = collector.save_article(db, article)
             if result:
