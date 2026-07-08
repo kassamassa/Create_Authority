@@ -285,16 +285,16 @@ def test_process():
         results["article"] = {
             "id": article["id"],
             "title": (article.get("title") or "")[:60],
-            "source_url": article.get("source_url", ""),
+            "content_length": len(article.get("content") or ""),
         }
     except Exception as exc:
         results["fetch_error"] = str(exc)
         return results
 
-    # Step 3: Dify ワークフロー呼び出し（source_url を直接渡す）
+    # Step 3: Dify ワークフロー呼び出し（articles.content を直接渡す）
     try:
         dify_result = dify_svc.call_dify_workflow(
-            article["source_url"], article["id"], article.get("category") or "未分類"
+            article.get("content") or "", article["id"], article.get("category") or "未分類"
         )
         results["dify"] = {"status": "ok", "result": dify_result}
     except Exception as exc:

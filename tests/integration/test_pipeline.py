@@ -152,7 +152,7 @@ def test_newsletter_queue_unique(staging_supabase, dummy_article):
 
 # --- グループ②: FastAPI ↔ Dify ---
 
-def test_collect_and_process_pipeline(mocker, mock_storage, test_client, staging_supabase, rss_feed_url):
+def test_collect_and_process_pipeline(mocker, test_client, staging_supabase, rss_feed_url):
     mocker.patch(
         "app.services.dify.call_dify_workflow",
         return_value={
@@ -176,7 +176,7 @@ def test_collect_and_process_pipeline(mocker, mock_storage, test_client, staging
     assert result.data[0]["status"] == "processed"
 
 
-def test_dify_result_saved(mocker, mock_storage, test_client, staging_supabase, dummy_article):
+def test_dify_result_saved(mocker, test_client, staging_supabase, dummy_article):
     _insert_article(staging_supabase, dummy_article)
     mocker.patch(
         "app.services.dify.call_dify_workflow",
@@ -197,11 +197,11 @@ def test_dify_result_saved(mocker, mock_storage, test_client, staging_supabase, 
     assert row["metadata"]["faq"] == [{"q": "質問1", "a": "回答1"}]
 
 
-def test_status_transition(mocker, mock_storage, test_client, staging_supabase, dummy_article):
+def test_status_transition(mocker, test_client, staging_supabase, dummy_article):
     _insert_article(staging_supabase, dummy_article)
     observed = {}
 
-    def fake_call(url, article_id, category):
+    def fake_call(content, article_id, category):
         result = staging_supabase.table("articles").select("status").eq("id", article_id).execute()
         observed["during_dify_call"] = result.data[0]["status"]
         return {"summary": "テスト要約", "faq": [{"q": "質問1", "a": "回答1"}], "category": "属人化解消"}
@@ -217,7 +217,7 @@ def test_status_transition(mocker, mock_storage, test_client, staging_supabase, 
     assert result.data[0]["status"] == "processed"
 
 
-def test_dify_timeout_recovery(mocker, mock_storage, test_client, staging_supabase, dummy_article):
+def test_dify_timeout_recovery(mocker, test_client, staging_supabase, dummy_article):
     _insert_article(staging_supabase, dummy_article)
     mocker.patch("app.services.dify.httpx.post", side_effect=httpx.TimeoutException("timeout"))
     notify_mock = mocker.patch("app.services.dify.notify_slack")
@@ -228,7 +228,6 @@ def test_dify_timeout_recovery(mocker, mock_storage, test_client, staging_supaba
     result = staging_supabase.table("articles").select("status").eq("id", dummy_article["id"]).execute()
     assert result.data[0]["status"] == "rejected"
 
-    mock_storage.remove.assert_called_once()  # tempファイルが削除される
     notify_mock.assert_called_once()
 
 

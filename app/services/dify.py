@@ -67,9 +67,9 @@ def delete_temp_file(supabase_client, path: str) -> None:
     supabase_client.storage.from_(STORAGE_BUCKET).remove([path])
 
 
-def call_dify_workflow(url: str, article_id: str, category: str) -> dict:
+def call_dify_workflow(content: str, article_id: str, category: str) -> dict:
     payload = {
-        "inputs": {"url": url, "article_id": article_id, "category": category},
+        "inputs": {"content": content, "article_id": article_id, "category": category},
         "response_mode": "blocking",
         "user": "create-authority",
     }
@@ -106,11 +106,11 @@ def _reject_article(supabase_client, article_id: str, reason: str) -> None:
 def process_article(supabase_client, article: dict) -> dict:
     """ステップ③: 記事の source_url を直接Difyに渡し、summary/FAQ/categoryを取得する。"""
     article_id = article["id"]
-    source_url = article.get("source_url", "")
+    content = article.get("content") or ""
     supabase_client.table("articles").update({"status": "processing"}).eq("id", article_id).execute()
 
     try:
-        result = call_dify_workflow(source_url, article_id, article.get("category") or "未分類")
+        result = call_dify_workflow(content, article_id, article.get("category") or "未分類")
     except DifyTemporaryError as exc:
         _reject_article(supabase_client, article_id, f"[dify] 一時障害によりrejected: article_id={article_id}: {exc}")
         raise

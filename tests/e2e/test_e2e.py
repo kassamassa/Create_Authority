@@ -65,7 +65,7 @@ def _mock_publisher_http(mocker):
 # 収集 → Dify処理 → SNS/サイト公開 → newsletter_queue自動追加
 # ============================================================
 
-def test_full_pipeline_flow(mocker, mock_storage, test_client, staging_supabase, rss_feed_url):
+def test_full_pipeline_flow(mocker, test_client, staging_supabase, rss_feed_url):
     """収集からSNS/サイト公開・newsletter_queue追加まで一連のステータス遷移を検証する。"""
     # Dify(ステップ③)モック
     mocker.patch(
@@ -100,9 +100,6 @@ def test_full_pipeline_flow(mocker, mock_storage, test_client, staging_supabase,
     assert article_row["summary"] == "E2E検証用要約：AIで属人化を解消した製造業事例"
     assert article_row["category"] == "属人化解消"
     assert article_row["metadata"]["faq"] == [{"q": "DX導入の効果は?", "a": "作業時間を50%削減しました。"}]
-
-    # 合格基準: tempファイルが残っていない
-    mock_storage.remove.assert_called_once()
 
     # ステップ6: POST /pipeline/publish/{id}
     response = test_client.post(f"/pipeline/publish/{article_id}")

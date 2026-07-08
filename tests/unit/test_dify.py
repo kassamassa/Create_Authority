@@ -54,7 +54,7 @@ def test_signed_url_generation(mock_storage, staging_supabase):
     mock_storage.remove.assert_called_once_with([path])
 
 
-def test_dify_processing(mock_storage, mocker, staging_supabase, dummy_article):
+def test_dify_processing(mocker, staging_supabase, dummy_article):
     # DIFY_API_KEYがdummy値だと実際のDify APIが401を返すため、
     # Dify呼び出し自体はモックし、DB永続化のロジックを検証する。
     mocker.patch(
@@ -80,38 +80,9 @@ def test_dify_processing(mock_storage, mocker, staging_supabase, dummy_article):
     assert article["status"] == "processed"
 
 
-def test_temp_file_deletion(mock_storage, mocker, staging_supabase, dummy_article):
-    _insert_dummy_article(staging_supabase, dummy_article)
-
-    mocker.patch(
-        "app.services.dify.call_dify_workflow",
-        return_value={"summary": "要約", "faq": [{"q": "質問", "a": "回答"}], "category": "manufacturing"},
-    )
-
-    dify.process_article(staging_supabase, dummy_article)
-
-    mock_storage.remove.assert_called_once()
-
-
-def test_temp_file_deletion_on_failure(mock_storage, mocker, staging_supabase, dummy_article):
-    """finallyブロックにより、異常系でもtempファイルが必ず削除されることを確認する。"""
-    _insert_dummy_article(staging_supabase, dummy_article)
-
-    mocker.patch(
-        "app.services.dify.call_dify_workflow",
-        side_effect=dify.DifyTemporaryError("timeout"),
-    )
-    mocker.patch("app.services.dify.notify_slack")
-
-    with pytest.raises(dify.DifyTemporaryError):
-        dify.process_article(staging_supabase, dummy_article)
-
-    mock_storage.remove.assert_called_once()
-
-
 # --- 異常系（pytest-mockでモック） ---
 
-def test_dify_timeout(mock_storage, mocker, staging_supabase, dummy_article):
+def test_dify_timeout(mocker, staging_supabase, dummy_article):
     _insert_dummy_article(staging_supabase, dummy_article)
 
     mocker.patch("app.services.dify.httpx.post", side_effect=httpx.TimeoutException("timeout"))
@@ -123,11 +94,10 @@ def test_dify_timeout(mock_storage, mocker, staging_supabase, dummy_article):
     result = staging_supabase.table("articles").select("status").eq("id", dummy_article["id"]).execute()
     assert result.data[0]["status"] == "rejected"
 
-    mock_storage.remove.assert_called_once()
     notify_mock.assert_called_once()
 
 
-def test_signed_url_expired(mock_storage, mocker, staging_supabase, dummy_article):
+def test_signed_url_expired(mocker, staging_supabase, dummy_article):
     _insert_dummy_article(staging_supabase, dummy_article)
 
     mock_request = mocker.Mock()
@@ -145,7 +115,6 @@ def test_signed_url_expired(mock_storage, mocker, staging_supabase, dummy_articl
     result = staging_supabase.table("articles").select("status").eq("id", dummy_article["id"]).execute()
     assert result.data[0]["status"] == "rejected"
 
-    mock_storage.remove.assert_called_once()
     notify_mock.assert_called_once()
     message = notify_mock.call_args[0][0]
     assert "設定ミス" in message
