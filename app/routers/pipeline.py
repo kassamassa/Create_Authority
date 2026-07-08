@@ -29,14 +29,44 @@ async def test_collect():
     except Exception as exc:
         results["rss"] = {"status": "error", "detail": str(exc)}
 
-    # Step 2: Supabase 接続テスト（get_supabase_client が正しい関数名）
+    # Step 2: Supabase 接続テスト（SELECT）
     try:
         from app.db import get_supabase_client
         db = get_supabase_client()
         res = db.table("articles").select("id").limit(1).execute()
-        results["supabase"] = {"status": "ok", "rows": len(res.data)}
+        results["supabase_select"] = {"status": "ok", "rows": len(res.data)}
     except Exception as exc:
-        results["supabase"] = {"status": "error", "detail": str(exc)}
+        results["supabase_select"] = {"status": "error", "detail": str(exc)}
+
+    # Step 3: Supabase INSERT テスト（実際に1件書き込む）
+    try:
+        import uuid
+        from app.db import get_supabase_client
+        db = get_supabase_client()
+        test_id = str(uuid.uuid4())
+        test_article = {
+            "id": test_id,
+            "title": "テスト記事",
+            "content": "テスト本文",
+            "category": "属人化解消",
+            "difficulty": "低",
+            "source_url": f"https://test.example.com/{uuid.uuid4()}",
+            "source_type": "rss",
+            "status": "collected",
+        }
+        res = db.table("articles").insert(test_article).execute()
+        if res.data:
+            results["supabase_insert"] = {"status": "ok", "id": res.data[0].get("id")}
+            # テストデータを削除
+            db.table("articles").delete().eq("id", test_id).execute()
+        else:
+            results["supabase_insert"] = {
+                "status": "error",
+                "detail": "data が空（RLSブロックまたはスキーマ不一致の可能性）",
+                "raw": str(res),
+            }
+    except Exception as exc:
+        results["supabase_insert"] = {"status": "error", "detail": str(exc)}
 
     return results
 

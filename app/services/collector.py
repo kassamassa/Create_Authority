@@ -195,7 +195,14 @@ def save_article(supabase_client, article: dict) -> Optional[dict]:
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     result = supabase_client.table("articles").insert(record).execute()
-    saved = result.data[0] if result.data else None
-    if saved:
-        logger.info("[save] 保存完了: id=%s url=%s", saved.get("id"), source_url[:80])
+    if not result.data:
+        # 例外なしで data が空 → RLS ブロックまたはスキーマ不一致の silent failure
+        logger.error(
+            "[save] INSERT失敗（data空）url=%s raw=%s",
+            source_url[:80],
+            str(result)[:200],
+        )
+        return None
+    saved = result.data[0]
+    logger.info("[save] 保存完了: id=%s url=%s", saved.get("id"), source_url[:80])
     return saved
