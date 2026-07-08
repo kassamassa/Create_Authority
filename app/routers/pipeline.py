@@ -402,6 +402,46 @@ def dify_raw():
         }
 
 
+@router.post("/process/all")
+def run_process_all(db=Depends(get_db)):
+    """status=collected の記事を全件取得し、Dify処理を順次実行する。"""
+    res = db.table("articles").select("*").eq("status", "collected").execute()
+    articles = res.data or []
+    total = len(articles)
+    logger.info("[process/all] 開始: %d 件", total)
+
+    processed_ids: list[str] = []
+    rejected_ids: list[str] = []
+    errors: list[dict] = []
+
+    for article in articles:
+        article_id = article.get("id", "")
+        title_short = (article.get("title") or "")[:50]
+        logger.info("[process/all] 処理中 id=%s title=%s", article_id, title_short)
+        try:
+            result = dify.process_article(db, article)
+            if result:
+                processed_ids.append(article_id)
+                logger.info("[process/all] 完了 id=%s", article_id)
+            else:
+                rejected_ids.append(article_id)
+        except Exception as exc:
+            logger.error("[process/all] エラー id=%s: %s", article_id, exc)
+            errors.append({"article_id": article_id, "error": str(exc)})
+            rejected_ids.append(article_id)
+
+    logger.info(
+        "[process/all] 完了: total=%d processed=%d rejected=%d errors=%d",
+        total, len(processed_ids), len(rejected_ids), len(errors),
+    )
+    return {
+        "total": total,
+        "processed": len(processed_ids),
+        "rejected": len(rejected_ids),
+        "errors": errors,
+    }
+
+
 @router.post("/process/{article_id}")
 def run_process(article_id: str, db=Depends(get_db)):
     logger.info("[process] article_id=%s", article_id)
