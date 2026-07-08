@@ -261,11 +261,10 @@ def run_collect_youtube(video_id: str, db=Depends(get_db)):
 
 @router.post("/process/test")
 def test_process():
-    """status=collected の記事を1件取得し、Dify処理の各ステップを個別に実行して詳細な結果を返す。"""
+    """status=collected の記事を1件取得し、source_url を直接Difyに渡して結果を返す。"""
     import os
     from app.db import get_supabase_client
     from app.services import dify as dify_svc
-    from app.services.publisher import SIGNED_URL_EXPIRES_IN, generate_signed_url
 
     results: dict = {}
 
@@ -273,7 +272,6 @@ def test_process():
     results["env"] = {
         "DIFY_API_KEY": bool(os.getenv("DIFY_API_KEY")),
         "DIFY_WORKFLOW_URL": os.getenv("DIFY_WORKFLOW_URL") or "(未設定・デフォルト使用)",
-        "SUPABASE_STORAGE_BUCKET": os.getenv("SUPABASE_STORAGE_BUCKET") or "articles (デフォルト)",
     }
 
     # Step 2: status=collected の記事を取得
@@ -284,39 +282,23 @@ def test_process():
             results["error"] = "status=collected の記事が見つかりません。先に /pipeline/collect?skip_dify=true を実行してください"
             return results
         article = res.data[0]
-        results["article"] = {"id": article["id"], "title": (article.get("title") or "")[:60]}
+        results["article"] = {
+            "id": article["id"],
+            "title": (article.get("title") or "")[:60],
+            "source_url": article.get("source_url", ""),
+        }
     except Exception as exc:
         results["fetch_error"] = str(exc)
         return results
 
-    # Step 3: Supabase Storage アップロード
-    temp_path = None
-    try:
-        temp_path = dify_svc.upload_temp_file(db, article.get("content") or "")
-        results["storage_upload"] = {"status": "ok", "path": temp_path}
-    except Exception as exc:
-        results["storage_upload"] = {"status": "error", "detail": str(exc)}
-        return results
-
-    # Step 4: 署名付き URL 生成
-    try:
-        signed_url = generate_signed_url(db, dify_svc.STORAGE_BUCKET, temp_path, SIGNED_URL_EXPIRES_IN)
-        results["signed_url"] = {"status": "ok", "url_prefix": signed_url[:60] + "..."}
-    except Exception as exc:
-        results["signed_url"] = {"status": "error", "detail": str(exc)}
-        dify_svc.delete_temp_file(db, temp_path)
-        return results
-
-    # Step 5: Dify ワークフロー呼び出し
+    # Step 3: Dify ワークフロー呼び出し（source_url を直接渡す）
     try:
         dify_result = dify_svc.call_dify_workflow(
-            signed_url, article["id"], article.get("category") or "未分類"
+            article["source_url"], article["id"], article.get("category") or "未分類"
         )
         results["dify"] = {"status": "ok", "result": dify_result}
     except Exception as exc:
         results["dify"] = {"status": "error", "detail": str(exc)}
-    finally:
-        dify_svc.delete_temp_file(db, temp_path)
 
     return results
 

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import httpx
 from dotenv import load_dotenv
 
-from app.services.publisher import SIGNED_URL_EXPIRES_IN, generate_signed_url, notify_slack
+from app.services.publisher import notify_slack
 
 load_dotenv()
 
@@ -104,45 +104,40 @@ def _reject_article(supabase_client, article_id: str, reason: str) -> None:
 
 
 def process_article(supabase_client, article: dict) -> dict:
-    """ステップ③: 記事本文を署名付きURL経由でDifyに渡し、summary/FAQ/categoryを取得する。"""
+    """ステップ③: 記事の source_url を直接Difyに渡し、summary/FAQ/categoryを取得する。"""
     article_id = article["id"]
+    source_url = article.get("source_url", "")
     supabase_client.table("articles").update({"status": "processing"}).eq("id", article_id).execute()
 
-    temp_path = upload_temp_file(supabase_client, article.get("content"))
     try:
-        signed_url = generate_signed_url(supabase_client, STORAGE_BUCKET, temp_path, SIGNED_URL_EXPIRES_IN)
+        result = call_dify_workflow(source_url, article_id, article.get("category") or "未分類")
+    except DifyTemporaryError as exc:
+        _reject_article(supabase_client, article_id, f"[dify] 一時障害によりrejected: article_id={article_id}: {exc}")
+        raise
+    except DifyConfigError as exc:
+        _reject_article(supabase_client, article_id, f"[dify] 設定ミスによりrejected: article_id={article_id}: {exc}")
+        raise
 
-        try:
-            result = call_dify_workflow(signed_url, article_id, article["category"])
-        except DifyTemporaryError as exc:
-            _reject_article(supabase_client, article_id, f"[dify] 一時障害によりrejected: article_id={article_id}: {exc}")
-            raise
-        except DifyConfigError as exc:
-            _reject_article(supabase_client, article_id, f"[dify] 設定ミスによりrejected: article_id={article_id}: {exc}")
-            raise
+    if not result.get("summary"):
+        _reject_article(supabase_client, article_id, f"[dify] summary未生成によりrejected: article_id={article_id}")
+        raise DifyConfigError("summaryが生成されませんでした")
 
-        if not result.get("summary"):
-            _reject_article(supabase_client, article_id, f"[dify] summary未生成によりrejected: article_id={article_id}")
-            raise DifyConfigError("summaryが生成されませんでした")
+    if not result.get("faq"):
+        _reject_article(supabase_client, article_id, f"[dify] FAQ未生成によりrejected: article_id={article_id}")
+        raise DifyConfigError("FAQが生成されませんでした")
 
-        if not result.get("faq"):
-            _reject_article(supabase_client, article_id, f"[dify] FAQ未生成によりrejected: article_id={article_id}")
-            raise DifyConfigError("FAQが生成されませんでした")
-
-        now = datetime.now(timezone.utc).isoformat()
-        metadata = {**(article.get("metadata") or {}), "faq": result["faq"]}
-        updated = (
-            supabase_client.table("articles")
-            .update({
-                "summary": result["summary"],
-                "category": result.get("category") or article["category"],
-                "metadata": metadata,
-                "status": "processed",
-                "processed_at": now,
-            })
-            .eq("id", article_id)
-            .execute()
-        )
-        return updated.data[0] if updated.data else None
-    finally:
-        delete_temp_file(supabase_client, temp_path)
+    now = datetime.now(timezone.utc).isoformat()
+    metadata = {**(article.get("metadata") or {}), "faq": result["faq"]}
+    updated = (
+        supabase_client.table("articles")
+        .update({
+            "summary": result["summary"],
+            "category": result.get("category") or article.get("category") or "未分類",
+            "metadata": metadata,
+            "status": "processed",
+            "processed_at": now,
+        })
+        .eq("id", article_id)
+        .execute()
+    )
+    return updated.data[0] if updated.data else None
