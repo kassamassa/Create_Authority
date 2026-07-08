@@ -1,9 +1,8 @@
 import os
+import traceback
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
-from app.routers import articles, monitor, newsletter, pipeline, webhook
 
 app = FastAPI(title="Create Authority")
 
@@ -19,11 +18,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(pipeline.router)
-app.include_router(articles.router)
-app.include_router(newsletter.router)
-app.include_router(monitor.router)
-app.include_router(webhook.router)
+_router_errors: dict = {}
+
+def _include(name: str, module_path: str, attr: str = "router"):
+    try:
+        import importlib
+        mod = importlib.import_module(module_path)
+        app.include_router(getattr(mod, attr))
+        print(f"[startup] {name} router registered OK")
+    except Exception as exc:
+        _router_errors[name] = f"{type(exc).__name__}: {exc}"
+        print(f"[startup] {name} router FAILED: {exc}")
+        traceback.print_exc()
+
+_include("pipeline",     "app.routers.pipeline")
+_include("articles",     "app.routers.articles")
+_include("newsletter",   "app.routers.newsletter")
+_include("monitor",      "app.routers.monitor")
+_include("webhook",      "app.routers.webhook")
 
 
 @app.get("/")
@@ -49,9 +61,12 @@ def pipeline_debug():
 
 @app.get("/routes")
 def list_routes():
-    """登録済み全エンドポイントの一覧を返す。デプロイ確認用。"""
-    return [
-        {"path": route.path, "methods": sorted(route.methods)}
-        for route in app.routes
-        if hasattr(route, "methods")
-    ]
+    """登録済み全エンドポイントの一覧と、router 登録エラーを返す。デプロイ確認用。"""
+    return {
+        "routes": [
+            {"path": route.path, "methods": sorted(route.methods)}
+            for route in app.routes
+            if hasattr(route, "methods")
+        ],
+        "router_errors": _router_errors,
+    }
