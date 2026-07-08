@@ -261,8 +261,9 @@ def run_collect_youtube(video_id: str, db=Depends(get_db)):
 
 @router.post("/process/test")
 def test_process():
-    """status=collected の記事を1件取得し、source_url を直接Difyに渡して結果を返す。"""
+    """status=collected の記事を1件取得し、articles.content をDifyに渡して結果を返す。"""
     import os
+    import httpx as _httpx
     from app.db import get_supabase_client
     from app.services import dify as dify_svc
 
@@ -291,12 +292,41 @@ def test_process():
         results["fetch_error"] = str(exc)
         return results
 
-    # Step 3: Dify ワークフロー呼び出し（articles.content を直接渡す）
+    # Step 3: Difyに送るペイロードを記録
+    content = article.get("content") or ""
+    article_id = article["id"]
+    category = article.get("category") or "未分類"
+    results["dify_payload_sent"] = {
+        "content_length": len(content),
+        "content_preview": content[:100],
+        "article_id": article_id,
+        "category": category,
+    }
+
+    # Step 4: Dify ワークフロー呼び出し（生レスポンスも記録）
     try:
-        dify_result = dify_svc.call_dify_workflow(
-            article.get("content") or "", article["id"], article.get("category") or "未分類"
+        payload = {
+            "inputs": {"content": content, "article_id": article_id, "category": category},
+            "response_mode": "blocking",
+            "user": "create-authority",
+        }
+        raw_response = _httpx.post(
+            dify_svc.DIFY_WORKFLOW_URL,
+            json=payload,
+            headers=dify_svc._headers(),
+            timeout=dify_svc.DIFY_PROCESSING_TIMEOUT,
         )
-        results["dify"] = {"status": "ok", "result": dify_result}
+        raw_json = raw_response.json()
+        outputs = raw_json.get("data", {}).get("outputs", {})
+        results["dify"] = {
+            "status_code": raw_response.status_code,
+            "outputs": outputs,
+            "summary_value": outputs.get("summary"),
+            "faq_value": outputs.get("faq"),
+            "category_value": outputs.get("category"),
+            "raw_keys": list(raw_json.keys()),
+            "data_keys": list(raw_json.get("data", {}).keys()),
+        }
     except Exception as exc:
         results["dify"] = {"status": "error", "detail": str(exc)}
 
