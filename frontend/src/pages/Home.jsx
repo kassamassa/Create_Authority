@@ -93,12 +93,19 @@ export default function Home() {
   const [formState, setFormState] = useState('idle') // idle | submitting | success | error
 
   useEffect(() => {
-    fetch(`${API_BASE}/articles?status=published`)
-      .then(res => {
-        if (!res.ok) throw new Error()
-        return res.json()
+    Promise.all([
+      fetch(`${API_BASE}/articles?status=published`).then(r => { if (!r.ok) throw new Error(); return r.json() }),
+      fetch(`${API_BASE}/articles?status=processed`).then(r => { if (!r.ok) throw new Error(); return r.json() }),
+    ])
+      .then(([published, processed]) => {
+        const seen = new Set()
+        const merged = [...published, ...processed].filter(a => {
+          if (seen.has(a.id)) return false
+          seen.add(a.id)
+          return true
+        })
+        setArticles(merged)
       })
-      .then(data => setArticles(data))
       .catch(() => {
         setArticles(DEMO_ARTICLES)
         setUsedDemo(true)
